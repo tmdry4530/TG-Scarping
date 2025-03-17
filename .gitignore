@@ -1,0 +1,26 @@
+# 세션 파일
+*.session
+
+# 환경 변수 파일
+.env
+
+# 캐시 파일
+*.json
+
+# 빌드 디렉토리
+build/
+dist/
+
+# 이미지 디렉토리
+image/
+
+# 크롬 드라이버
+chromedriver-win64/
+
+# 파이썬 캐시 파일
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 기타 불필요한 파일
+*.spec 
