@@ -8,7 +8,6 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
 import time
 import logging
 import sys
@@ -16,6 +15,8 @@ import pyautogui
 import hashlib
 from collections import OrderedDict
 import json
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -31,13 +32,16 @@ class Config:
     EXCLUDE_KEYWORDS = os.getenv('EXCLUDE_KEYWORDS', '').split(',')
     IMAGE_DIR = os.path.join(os.getcwd(), 'image') + os.path.sep
     PAGE_LOAD_WAIT = 2.5
+    MAX_WORKERS = 3  # 동시 처리할 수 있는 최대 URL 수
     
     # 운영체제별 설정
     SYSTEM = platform.system()
     if SYSTEM == 'Darwin':  # macOS
-        CLICK_COORDINATES = [(827, 480), (956, 260), (837, 410)]  # macOS 좌표 (예시값, 실제 맥에서 조정 필요)
+        CLICK_COORDINATES = [(881, 633), (1270, 489)]  # macOS 좌표
+        CHROME_DRIVER_PATH = '/usr/local/bin/chromedriver'
     else:  # Windows 또는 기타
         CLICK_COORDINATES = [(1994, 606), (2118, 360), (2004, 510)]  # 원래 윈도우 좌표
+        CHROME_DRIVER_PATH = None  # Windows에서는 webdriver_manager 사용
     
     CLICK_INTERVAL = 0.2
 
@@ -46,17 +50,33 @@ class WebDriver:
         options = Options()
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--headless')  # 헤드리스 모드 추가
+        options.add_argument('--disable-gpu')
+        options.add_argument('--disable-extensions')
+        options.add_argument('--disable-infobars')
+        options.add_argument('--disable-notifications')
+        options.add_argument('--disable-popup-blocking')
+        options.add_argument('--start-maximized')
         
         if Config.SYSTEM == 'Windows':
             options.add_experimental_option('excludeSwitches', ['enable-logging'])
         
-        service = Service(ChromeDriverManager().install())
+        if Config.SYSTEM == 'Darwin':
+            service = Service(Config.CHROME_DRIVER_PATH)
+        else:
+            from webdriver_manager.chrome import ChromeDriverManager
+            service = Service(ChromeDriverManager().install())
+            
         self.driver = webdriver.Chrome(service=service, options=options)
         logging.info(f"ChromeDriver initialized on {Config.SYSTEM}")
 
     def navigate(self, url):
-        self.driver.get(url)
-        time.sleep(Config.PAGE_LOAD_WAIT)
+        try:
+            self.driver.get(url)
+            time.sleep(Config.PAGE_LOAD_WAIT)
+        except Exception as e:
+            logging.error(f"Failed to navigate to {url}: {e}")
+            raise
 
     def click_button(self):
         try:
@@ -65,14 +85,13 @@ class WebDriver:
             time.sleep(Config.PAGE_LOAD_WAIT)
         except Exception as e:
             logging.error(f"Failed to click button: {e}")
+            raise
 
     def perform_clicks(self):
-        # 현재 화면 크기 확인
         screen_width, screen_height = pyautogui.size()
         logging.info(f"Screen size: {screen_width}x{screen_height}")
         
         for x, y in Config.CLICK_COORDINATES:
-            # 화면 밖으로 나가지 않도록 좌표 조정
             safe_x = min(x, screen_width - 10)
             safe_y = min(y, screen_height - 10)
             
@@ -83,9 +102,13 @@ class WebDriver:
                 logging.info(f"Clicked at coordinates: ({safe_x}, {safe_y})")
             except Exception as e:
                 logging.error(f"Failed to click at coordinates ({safe_x}, {safe_y}): {e}")
+                raise
 
     def quit(self):
-        self.driver.quit()
+        try:
+            self.driver.quit()
+        except Exception as e:
+            logging.error(f"Failed to quit WebDriver: {e}")
 
 class MessageCache:
     def __init__(self, max_size=1000):
@@ -102,8 +125,11 @@ class MessageCache:
             self.cache = OrderedDict()
     
     def _save_cache(self):
-        with open(self.cache_file, 'w', encoding='utf-8') as f:
-            json.dump(list(self.cache.items()), f, ensure_ascii=False)
+        try:
+            with open(self.cache_file, 'w', encoding='utf-8') as f:
+                json.dump(list(self.cache.items()), f, ensure_ascii=False)
+        except Exception as e:
+            logging.error(f"Failed to save cache: {e}")
     
     def add_message(self, message):
         message_hash = hashlib.md5(message.encode()).hexdigest()
@@ -124,6 +150,7 @@ class MessageHandler:
         self.bot_client = bot_client
         self.web_driver = web_driver
         self.message_cache = message_cache
+        self.executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS)
 
     def extract_urls(self, text):
         return re.findall(r'(https?://\S+)', text)
@@ -188,13 +215,21 @@ class MessageHandler:
             else:
                 await self.send_message_via_bot(message_to_send)
 
-            for url in keyword_urls:
-                await self._process_url(url)
+            # URL 처리를 병렬로 실행
+            tasks = [self._process_url(url) for url in keyword_urls]
+            await asyncio.gather(*tasks)
 
         except Exception as e:
             logging.error(f"Error handling message: {e}")
 
     async def _process_url(self, url):
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(self.executor, self._process_url_sync, url)
+        except Exception as e:
+            logging.error(f"Error processing URL {url}: {e}")
+
+    def _process_url_sync(self, url):
         try:
             self.web_driver.navigate(url)
             self.web_driver.click_button()

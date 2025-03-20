@@ -7,6 +7,4 @@ requests==2.31.0
 pillow==10.0.1
 asyncio==3.4.3
 pymongo==4.5.0
-hashlib==20081119
-pyqt5==5.15.9
 psutil==5.9.5
