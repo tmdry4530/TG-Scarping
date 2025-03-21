@@ -1,72 +1,81 @@
-# TG-Scraping
+# 텔레그램 카카오 링크 자동 참여 봇
 
-텔레그램 메시지를 스크래핑하고 카카오톡 오픈채팅방 링크를 자동으로 처리하는 봇입니다.
+텔레그램에서 오픈카카오톡 초대 링크를 자동으로 감지하고 참여하는 봇입니다. CLOVA OCR을 사용해 이미지에서 비밀번호를 추출할 수 있습니다.
 
 ## 주요 기능
 
-- 텔레그램 채팅에서 카카오톡 오픈채팅방 링크 자동 감지
-- 감지된 링크를 특정 텔레그램 그룹에 전달
-- 웹 브라우저 자동화를 통한 카카오톡 링크 처리
-- 맥OS, 윈도우 크로스 플랫폼 지원
-
-## 주요 파일
-
-- `tg.py`: 윈도우 환경용 메인 스크립트
-- `tg_mac.py`: 맥OS 환경용 메인 스크립트
-- `TG_kakao.py`: 카카오톡 링크 처리 관련 확장 기능
-- `monitor_channels.py`: 채널 모니터링 기능
-- `create_session.py`: 텔레그램 세션 생성 유틸리티
-- `setup_coordinates.py`: 맥OS용 클릭 좌표 설정 도구
-- `.env.sample`: 환경 설정 파일 샘플
+- 텔레그램 그룹에서 오픈카카오톡 링크 감지
+- 자동으로 링크에 접속 및 참여
+- 이미지에서 OCR을 통한 비밀번호 추출
+- 중복 메시지 필터링
+- 메모리 최적화 및 리소스 관리
 
 ## 설치 방법
 
-1. 저장소 클론
+1. 저장소 클론:
 
-   ```
-   git clone https://github.com/tmdry4530/TG-Scarping.git
+   ```bash
+   git clone https://github.com/yourusername/tg_coffee_bot.git
+   cd tg_coffee_bot
    ```
 
-2. 의존성 설치
+2. 필요한 패키지 설치:
 
-   ```
+   ```bash
    pip install -r requirements.txt
    ```
 
-3. `.env` 파일 설정
-   ```
-   # .env.sample 파일을 .env로 복사하고 수정
-   cp .env.sample .env
-   # 파일을 열어 실제 값으로 수정
+3. 환경 변수 설정:
+   `.env.example` 파일을 `.env`로 복사하고 필요한 값들을 설정하세요.
+
+   ```bash
+   cp .env.example .env
    ```
 
-## 초기 설정
+4. Chrome 드라이버 설치:
+   Chrome 브라우저와 같은 버전의 Chrome 드라이버를 설치하세요.
 
-1. 텔레그램 세션 생성
+## 환경 변수 설정
 
-   ```
-   python create_session.py
-   ```
+`.env` 파일에 다음 값들을 설정해야 합니다:
 
-2. 맥OS에서 클릭 좌표 설정 (맥OS 사용자만)
-   ```
-   python setup_coordinates.py
-   ```
-   화면의 지시에 따라 카카오톡 오픈채팅 링크를 열고 필요한 버튼 위치에 마우스를 올려놓고 Enter를 눌러 좌표를 설정합니다.
+```
+# 텔레그램 API 정보
+API_ID=your_api_id
+API_HASH=your_api_hash
+BOT_TOKEN=your_bot_token
+TARGET_GROUP=your_target_group_id
+
+# CLOVA OCR 설정
+CLOVA_OCR_API_URL=your_clova_ocr_api_url
+CLOVA_OCR_SECRET_KEY=your_clova_ocr_secret_key
+
+# 기타 설정
+DEBUG_MODE=False
+ADMIN_CHAT_ID=your_admin_chat_id
+```
 
 ## 사용 방법
 
-1. 봇 실행 (운영체제에 맞는 스크립트 선택)
+봇 실행:
 
-   ```
-   python tg.py    # 윈도우용
-   python tg_mac.py    # 맥OS용
-   ```
+```bash
+python tg.py
+```
 
-2. 텔레그램 채팅에서 카카오톡 오픈채팅 링크가 감지되면 봇이 자동으로 처리합니다.
+## 명령어
 
-## 문제 해결
+- `/ping` - 봇 상태 확인
+- `/status` - 상태 정보 표시
+- `/debug` - 자가 진단 실행
+- `/shutdown` - 봇 종료 (관리자만 가능)
 
-- **맥OS에서 클릭이 제대로 동작하지 않는 경우**: `setup_coordinates.py`를 실행하여 좌표를 다시 설정합니다.
-- **ChromeDriver 오류**: 크롬 브라우저가 최신 버전으로 업데이트되어 있는지 확인합니다.
-- **텔레그램 API 오류**: `.env` 파일의 API 키와 토큰이 올바르게 설정되어 있는지 확인합니다.
+## 주의사항
+
+- 텔레그램 API와 CLOVA OCR API 사용을 위한 인증 정보가 필요합니다.
+- Chrome 브라우저가 설치되어 있어야 합니다.
+- 자동화된 작업이 서비스 약관에 위배될 수 있으니 사용에 주의하세요.
+
+## 라이선스
+
+MIT License

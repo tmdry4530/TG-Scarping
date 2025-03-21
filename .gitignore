@@ -1,26 +1,99 @@
-# 세션 파일
-*.session
-
-# 환경 변수 파일
-.env
-
-# 캐시 파일
-*.json
-
-# 빌드 디렉토리
-build/
-dist/
-
-# 이미지 디렉토리
-image/
-
-# 크롬 드라이버
-chromedriver-win64/
-
-# 파이썬 캐시 파일
+# Python 관련 임시 파일
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.spec
+
+# 가상 환경
+venv/
+env/
+ENV/
+.venv/
+.python-version
+
+# 환경 변수 파일 (민감한 정보 포함)
+.env
+.env.*
+
+# 로그 파일
+*.log
+logs/
+*.log.*
+
+# 이미지 관련 파일
+image/
+*/debug/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.webp
+
+# 캐시 및 데이터 파일
+message_cache.json
+*.json
+*.db
+*.sqlite
+*.sqlite3
+
+# 텔레그램 세션 파일
+bot_session*
+user_session*
+*.session
+*.session-journal
+
+# 디버그 파일
+debug/
+*/debug/
+*.debug
+
+# IDE 관련 파일
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+.jupyter/
+.ipynb_checkpoints/
+
+# 시스템 파일
+.DS_Store
+Thumbs.db
+desktop.ini
+*.lnk
+
+# 크롬 드라이버
+chromedriver*
+*chromedriver*/
+*.exe
 
 # 기타 불필요한 파일
-*.spec 
+*.bak
+*.tmp
+*.temp
+*.pyc
+test*.py
+temp/
+temporary/
+tmp/ 
