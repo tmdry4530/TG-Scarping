@@ -45,7 +45,7 @@ os.makedirs(log_dir, exist_ok=True)
 
 # 로깅 설정 - 디버그 레벨 및 로테이션 로그 사용
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,  # INFO 레벨로 변경
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),  # 콘솔 출력
@@ -59,7 +59,7 @@ logging.basicConfig(
 )
 
 # Telethon 디버그 로깅 활성화
-logging.getLogger('telethon').setLevel(logging.INFO)
+logging.getLogger('telethon').setLevel(logging.WARNING)  # WARNING 레벨로 변경
 
 # .env 파일 로딩
 try:
@@ -245,6 +245,8 @@ class WebDriver:
         options.add_argument('--disable-web-security')
         options.add_argument('--disable-client-side-phishing-detection')
         
+        options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        
         try:
             # macOS에서 ChromeDriver 경로 직접 지정
             if os.path.exists(Config.CHROME_DRIVER_PATH):
@@ -252,8 +254,11 @@ class WebDriver:
                 self.driver = webdriver.Chrome(service=service, options=options)
                 logging.info(f"ChromeDriver 초기화 성공: {Config.CHROME_DRIVER_PATH}")
             else:
-                # 시스템 경로의 ChromeDriver 사용
-                self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+                # ChromeDriverManager 사용
+                driver_path = ChromeDriverManager().install()
+                logging.info(f"ChromeDriver 경로: {driver_path}")
+                service = Service(executable_path=driver_path)
+                self.driver = webdriver.Chrome(service=service, options=options)
                 logging.info("ChromeDriverManager를 통해 드라이버 설치 및 초기화 성공")
         except Exception as e:
             logging.error(f"ChromeDriver 초기화 실패: {e}")
@@ -865,66 +870,66 @@ class MessageHandler:
         메시지를 무시해야 하는지 검사하는 함수
         """
         try:
+            # 메시지 출처가 봇인지 확인 (직접적인 방식)
+            if hasattr(event.message, 'message'):
+                # 봇이 보낸 메시지 형식 확인 ('Keyword detected message:'로 시작하거나 'Password extracted:'를 포함)
+                if event.message.message.startswith("Keyword detected message:") or "Password extracted:" in event.message.message:
+                    logging.info(f"봇 형식 메시지 무시 (순환 방지): {event.chat_id}")
+                    return True
+            
             # 자신의 메시지도 처리 (테스트 목적)
             if event.out:
                 # 키워드가 포함된 메시지인지 확인
                 if hasattr(event.message, 'message') and Config.KEYWORD in event.message.message:
-                    logging.info("자신이 보낸 메시지이지만 키워드가 포함되어 처리합니다: " + Config.KEYWORD)
                     return False
-                logging.debug("자신의 메시지이지만 키워드가 없어 무시")
                 return True
             
             # 채널이 아닌 경우 처리 (개인 메시지나 그룹 메시지만 처리)
             if hasattr(event.chat, 'broadcast') and event.chat.broadcast:
-                logging.debug("채널 메시지 무시")
                 return True
             
             # 메시지 텍스트가 없는 경우 처리하지 않음 (미디어만 있는 메시지 등)
             if not hasattr(event.message, 'message') or not event.message.message:
                 if not (event.message.media and isinstance(event.message.media, MessageMediaPhoto)):
-                    logging.debug("텍스트 없는 메시지 무시 (사진 제외)")
                     return True
             
-            # 대상 그룹 비교를 위한 ID 변환 (절대값 사용)
-            original_chat_id = event.chat_id
-            original_target = Config.TARGET_GROUP
-            
-            chat_id_abs = abs(event.chat_id)
-            target_id_abs = abs(Config.TARGET_GROUP)
-            
-            logging.debug(f"그룹 ID 비교: {chat_id_abs} vs {target_id_abs} (원본: {original_chat_id} vs {original_target})")
-            
-            # 대상 그룹이 아닌 경우 무시
-            if chat_id_abs != target_id_abs:
-                logging.debug(f"대상 그룹이 아닌 메시지 무시: {original_chat_id} (대상: {original_target})")
-                return True
-            
             # 제외 그룹 목록에 있는 경우 무시
-            if Config.EXCLUDED_GROUP_IDS and any(abs(event.chat_id) == abs(int(group)) for group in Config.EXCLUDED_GROUP_IDS if group and group.strip()):
-                logging.debug(f"제외 그룹의 메시지 무시: {event.chat_id}")
+            if Config.EXCLUDED_GROUP_IDS and any(abs(event.chat_id) == abs(int(group)) 
+                                              for group in Config.EXCLUDED_GROUP_IDS 
+                                              if group and group.strip()):
+                logging.info(f"제외 그룹 목록에 있는 메시지 무시: {event.chat_id}")
                 return True
             
             # 제외 키워드 포함 메시지 무시
             if hasattr(event.message, 'message') and event.message.message and Config.EXCLUDED_KEYWORDS:
                 if any(keyword in event.message.message for keyword in Config.EXCLUDED_KEYWORDS if keyword and keyword.strip()):
-                    logging.debug("제외 키워드 포함 메시지 무시")
+                    logging.info(f"제외 키워드가 포함된 메시지 무시: {event.chat_id}")
                     return True
             
-            logging.info(f"메시지 필터링 통과 - 처리 진행: chat_id={event.chat_id}")
             return False
         except Exception as e:
             logging.error(f"메시지 필터링 중 오류: {e}", exc_info=True)
             return True  # 오류 발생 시 안전하게 메시지 무시
 
     def _collect_urls(self, event):
-        urls = self.extract_urls(event.message.message)
-        urls.extend(self.extract_hyperlink_urls(event))
+        urls = []
         
-        if event.message.media and hasattr(event.message.media, 'webpage'):
-            if hasattr(event.message.media.webpage, 'url'):
-                urls.append(event.message.media.webpage.url)
+        # 텍스트에서 직접 URL 추출
+        if hasattr(event.message, 'message') and event.message.message:
+            logging.debug(f"메시지 텍스트: {event.message.message}")
+            extracted_urls = self.extract_urls(event.message.message)
+            if extracted_urls:
+                logging.debug(f"텍스트에서 직접 추출된 URL: {extracted_urls}")
+                # 키워드가 포함된 URL만 필터링
+                urls.extend([url for url in extracted_urls if Config.KEYWORD in url])
         
-        return urls
+        # 중복 제거 및 로깅
+        unique_urls = list(set(urls))
+        if unique_urls:
+            logging.info(f"추출된 URL 목록: {unique_urls}")
+        else:
+            logging.debug("추출된 URL이 없습니다.")
+        return unique_urls
 
     async def _handle_message(self, event, keyword_urls):
         try:

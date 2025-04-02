@@ -35,6 +35,7 @@ import base64
 import urllib3
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from telethon.errors import PersistentTimestampOutdatedError
 
 # SSL 경고 비활성화
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -50,7 +51,7 @@ os.makedirs(log_dir, exist_ok=True)
 
 # 로깅 설정 - 디버그 레벨 및 로테이션 로그 사용
 logging.basicConfig(
-    level=logging.DEBUG,  # DEBUG 레벨로 변경하여 더 자세한 로그 확인
+    level=logging.INFO,  # INFO 레벨로 변경
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),  # 콘솔 출력
@@ -64,7 +65,7 @@ logging.basicConfig(
 )
 
 # Telethon 디버그 로깅 활성화
-logging.getLogger('telethon').setLevel(logging.INFO)  # INFO 레벨로 변경하여 너무 많은 로그 방지
+logging.getLogger('telethon').setLevel(logging.WARNING)  # WARNING 레벨로 변경
 
 # .env 파일 로딩
 try:
@@ -121,10 +122,10 @@ class Config:
     SYSTEM = platform.system()
     
     # 클릭 좌표 (기본값)
-    CLICK_COORDINATES = [(1994, 606), (2118, 360), (2004, 510)]
+    CLICK_COORDINATES = [(1994, 606), (2115, 358), (2004, 510)]
     
     # 비밀번호가 있는 경우 사용할 좌표
-    PASSWORD_CLICK_COORDINATES = [(1994, 606), (1919,415), (2118, 360), (2004, 510)]
+    PASSWORD_CLICK_COORDINATES = [(1994, 606), (1915,425), (2115, 358), (2004, 510)]
     
     # 클릭 간격
     CLICK_INTERVAL = float(os.getenv('CLICK_INTERVAL', '0.2'))
@@ -240,7 +241,6 @@ class WebDriver:
         options = Options()
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
-        # options.add_argument('--headless')  # 헤드리스 모드 비활성화
         options.add_argument('--disable-gpu')
         options.add_argument('--disable-extensions')
         options.add_argument('--disable-infobars')
@@ -253,20 +253,17 @@ class WebDriver:
         options.add_argument('--disable-translate')
         options.add_argument('--disable-web-security')
         options.add_argument('--disable-client-side-phishing-detection')
-        # options.add_argument('--blink-settings=imagesEnabled=false')  # 이미지 로딩 활성화
         
         options.add_experimental_option('excludeSwitches', ['enable-logging'])
         
         try:
-            # WebDriverManager를 사용하지 않고 직접 생성
-            if Config.CHROME_DRIVER_PATH and os.path.exists(Config.CHROME_DRIVER_PATH):
-                service = Service(Config.CHROME_DRIVER_PATH)
-                self.driver = webdriver.Chrome(service=service, options=options)
-                logging.info(f"ChromeDriver 초기화 성공: {Config.CHROME_DRIVER_PATH}")
-            else:
-                # 시스템 경로의 ChromeDriver 사용
-                self.driver = webdriver.Chrome(options=options)
-                logging.info("시스템 경로의 ChromeDriver 사용")
+            # ChromeDriverManager를 사용하여 자동으로 최신 드라이버 다운로드
+            driver_path = ChromeDriverManager().install()
+            logging.info(f"ChromeDriver 경로: {driver_path}")
+            
+            service = Service(executable_path=driver_path)
+            self.driver = webdriver.Chrome(service=service, options=options)
+            logging.info("ChromeDriver 초기화 성공")
         except Exception as e:
             logging.error(f"ChromeDriver 초기화 실패: {e}")
             raise
@@ -368,13 +365,11 @@ class PasswordExtractor:
     def is_likely_password(text):
         # 길이 확인 (4-20자)
         if len(text) < 4 or len(text) > 20:
-            logging.debug(f"'{text}'는 길이가 부적합함 (길이: {len(text)})")
             return False
         
         # 최소한의 URL 관련 단어만 필터링 (전체 단어 일치만 확인)
         basic_url_words = ['http', 'https', 'www', 'com', 'net', 'org']
         if text.lower() in basic_url_words:
-            logging.debug(f"'{text}'는 기본 URL 단어에 해당하여 제외됨")
             return False
         
         # 영어와 숫자 확인
@@ -383,34 +378,23 @@ class PasswordExtractor:
         
         # URL이나 이메일 형식은 제외
         if re.match(r'^https?://', text) or '@' in text:
-            logging.debug(f"'{text}'는 URL 또는 이메일 형식으로 보여 제외됨")
             return False
             
         # 특수문자만 있는 경우 제외
         if not has_letter and not has_digit:
-            logging.debug(f"'{text}'는 영문자나 숫자가 없어 제외됨")
             return False
         
         # 간소화된 판단 로직: 
         # 1. 영문+숫자 조합 (가장 확실한 비밀번호 형태)
         # 2. 영문만으로 된 4자 이상의 비밀번호
         # 3. 숫자만으로 된 4자 이상의 비밀번호
-        is_valid = True
-        
-        # 유효한 비밀번호 로깅
-        if is_valid:
-            password_type = "영문+숫자 조합" if has_letter and has_digit else "영문으로만 구성" if has_letter else "숫자로만 구성"
-            logging.debug(f"'{text}'는 비밀번호 가능성이 높음 (유형: {password_type}, 길이: {len(text)})")
-            
-        return is_valid
+        return True
     
     @staticmethod
     def extract_from_text(text):
         """
         텍스트에서 비밀번호 추출 함수 (개선된 버전)
         """
-        logging.info("비밀번호 추출 시작...")
-        
         # URL 추출 및 URL에 포함된 단어 목록 생성
         urls = re.findall(r'https?://\S+', text)
         url_words = set()
@@ -422,11 +406,8 @@ class PasswordExtractor:
             # 단어 추가 (비어있는 문자열 제외)
             url_words.update([part.lower() for part in parts if part])
         
-        logging.debug(f"URL에서 추출한 단어들: {url_words}")
-        
         # URL 제거한 텍스트 생성
         text_without_urls = re.sub(r'https?://\S+', '', text)
-        logging.debug(f"URL 제거 후 텍스트: {text_without_urls}")
         
         # 최소한의 기본 제외 단어 목록 (URL 스킴과 TLD만 포함)
         basic_excluded_words = ['http', 'https', 'www', 'com', 'net', 'org']
@@ -437,7 +418,6 @@ class PasswordExtractor:
         
         # 중복 제거 및 소문자화 (비교용)
         excluded_words_lower = set([word.lower() for word in excluded_words if word and len(word) >= 3])
-        logging.debug(f"제외할 단어 목록: {excluded_words_lower}")
         
         # 1. 문맥 기반 비밀번호 추출 (가장 정확한 방법)
         # 비밀번호 관련 키워드 다음에 나오는 단어를 추출
@@ -468,7 +448,7 @@ class PasswordExtractor:
                         if (4 <= len(candidate) <= 20 and 
                             candidate.lower() not in excluded_words_lower and 
                             PasswordExtractor.is_likely_password(candidate)):
-                            logging.info(f"문맥 기반 비밀번호 추출 성공: {candidate}")
+                            logging.info(f"문맥 기반 비밀번호 추출: {candidate}")
                             return candidate
         
         # 2. 특정 패턴으로 비밀번호 추출
@@ -511,7 +491,6 @@ class PasswordExtractor:
                 
                 if filtered_matches:
                     password = filtered_matches[0]
-                    logging.info(f"{description}에서 비밀번호 추출: {password}")
                     return password
         
         # 3. 일반적인 비밀번호 패턴 (문맥 기반 패턴)
@@ -537,7 +516,6 @@ class PasswordExtractor:
             if filtered_matches:
                 # 원본 케이스 유지(대소문자 구분)
                 password = filtered_matches[0]
-                logging.info(f"일반 패턴에서 비밀번호 추출: {password}")
                 return password
         
         # 4. 마지막 시도: 단어 단위 분석
@@ -557,29 +535,24 @@ class PasswordExtractor:
             if mixed_words:
                 # 원본 케이스 유지(대소문자 구분)
                 password = mixed_words[0]
-                logging.info(f"숫자+문자 혼합 단어에서 비밀번호 추출: {password}")
                 return password
             
             # 그다음 영문 단어 우선
             english_words = [w for w in filtered_words if re.search(r'[a-zA-Z]', w) and not re.search(r'[0-9]', w)]
             if english_words:
                 password = english_words[0]
-                logging.info(f"영문 단어에서 비밀번호 추출: {password}")
                 return password
                 
             # 마지막으로 숫자 단어
             number_words = [w for w in filtered_words if re.search(r'[0-9]', w) and not re.search(r'[a-zA-Z]', w)]
             if number_words:
                 password = number_words[0]
-                logging.info(f"숫자 단어에서 비밀번호 추출: {password}")
                 return password
             
             # 그 외의 경우 첫 번째 단어 사용
             password = filtered_words[0]
-            logging.info(f"단어 분석에서 비밀번호 추출: {password}")
             return password
         
-        logging.warning("텍스트에서 비밀번호를 추출할 수 없습니다.")
         return None
     
     @staticmethod
@@ -609,7 +582,6 @@ class PasswordExtractor:
             if max(h, w) > Config.MAX_IMAGE_DIMENSION:
                 scale = Config.MAX_IMAGE_DIMENSION / max(h, w)
                 image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-                logging.debug(f"이미지 리사이징: {w}x{h} -> {int(w*scale)}x{int(h*scale)}")
             
             # 디버깅 관련 코드는 디버그 모드일 때만 실행
             if Config.DEBUG_MODE:
@@ -642,8 +614,6 @@ class PasswordExtractor:
                 'X-OCR-SECRET': Config.CLOVA_OCR_SECRET_KEY,
                 'Content-Type': 'application/json'
             }
-            
-            logging.info("CLOVA OCR API 요청 시작")
             
             # CLOVA OCR API 호출 - 직접 세션 생성
             session = requests.Session()
@@ -692,7 +662,6 @@ class PasswordExtractor:
             
             # 추출된 텍스트가 없는 경우
             if not extracted_texts:
-                logging.warning("CLOVA OCR API에서 텍스트를 추출할 수 없습니다.")
                 return None
             
             # 추출된 텍스트를 하나의 문자열로 결합
@@ -703,16 +672,9 @@ class PasswordExtractor:
                 with open(os.path.join(debug_dir, f"{base_filename}_extracted_text.txt"), 'w', encoding='utf-8') as f:
                     f.write(combined_text)
             
-            logging.info(f"CLOVA OCR에서 텍스트 추출 완료, 길이: {len(combined_text)}")
-            
             # 추출된 텍스트에서 비밀번호 찾기
             password = PasswordExtractor.extract_from_text(combined_text)
-            if password:
-                logging.info(f"CLOVA OCR 결과에서 비밀번호 추출: {password}")
-                return password
-            
-            logging.warning("CLOVA OCR 결과에서 비밀번호를 추출할 수 없습니다.")
-            return None
+            return password
             
         except Exception as e:
             logging.error(f"이미지에서 비밀번호 추출 중 오류: {e}", exc_info=True)
@@ -794,6 +756,11 @@ class MessageHandler:
 
     async def send_message_via_bot(self, message_text, media=None):
         try:
+            logging.info(f"메시지 전송 시도: {Config.TARGET_GROUP} - 길이: {len(message_text)}")
+            logging.info(f"메시지 미리보기: {message_text[:100]}...")
+            if media:
+                logging.info(f"미디어 파일 첨부: {media}")
+            
             await self.client.send_message(Config.TARGET_GROUP, message_text, file=media)
             logging.info(f"메시지 전송 완료: {Config.TARGET_GROUP}")
         except Exception as e:
@@ -801,49 +768,247 @@ class MessageHandler:
 
     async def process_message(self, event):
         try:
-            logging.info(f"메시지 처리 시작: {event.chat_id}")
+            # 메시지에 키워드가 있는지 확인
+            has_keyword = False
+            if hasattr(event, 'message') and hasattr(event.message, 'message') and event.message.message:
+                if Config.KEYWORD in event.message.message:
+                    has_keyword = True
+                    msg_preview = event.message.message[:50] + "..." if len(event.message.message) > 50 else event.message.message
+                    logging.info(f"키워드 포함 메시지 수신: chat_id={event.chat_id}, message={msg_preview}")
             
-            # 메시지 타입 로깅 추가
-            if hasattr(event, 'message'):
-                if hasattr(event.message, 'message') and event.message.message:
-                    logging.debug(f"메시지 내용: {event.message.message[:100]}")
-                
-                media_type = "없음"
-                if event.message.media:
-                    media_type = type(event.message.media).__name__
-                logging.debug(f"메시지 미디어 타입: {media_type}")
-                
-                if hasattr(event.message, 'entities') and event.message.entities:
-                    entity_types = [type(entity).__name__ for entity in event.message.entities]
-                    logging.debug(f"메시지 엔티티: {entity_types}")
+            if not has_keyword and not (event.message.media and isinstance(event.message.media, MessageMediaPhoto)):
+                return
             
             if self._should_ignore_message(event):
-                logging.info(f"메시지 무시됨: {event.chat_id} - 필터링 조건에 해당")
+                if has_keyword:
+                    logging.info(f"메시지 무시됨 (_should_ignore_message 결과): {event.chat_id}")
                 return
 
             urls = self._collect_urls(event)
-            if urls:
-                logging.info(f"추출된 URL: {urls}")
+            if not urls:
+                if has_keyword:
+                    logging.info(f"URL이 없는 메시지 무시: {event.chat_id}")
+                return
             
-            keyword_urls = list(set(url for url in urls if Config.KEYWORD in url))
+            keyword_urls = list(set(urls))  # _collect_urls에서 이미 키워드 필터링 완료
             if keyword_urls:
-                logging.info(f"키워드 포함 URL: {keyword_urls}")
+                logging.info(f"키워드 포함 URL 감지: {keyword_urls}")
             else:
-                logging.info("키워드 포함 URL 없음")
+                if has_keyword:
+                    logging.info(f"키워드가 포함된 URL이 없는 메시지 무시: {event.chat_id}")
                 return
 
-            # 메시지 캐시에 추가
             is_new_message = self.message_cache.add_message(event.message.message)
-            logging.info(f"메시지 캐시 추가 결과: {is_new_message}")
-            
             if keyword_urls and is_new_message:
-                logging.info("메시지 처리 진행 중...")
+                logging.info(f"새 메시지 처리 진행: {event.chat_id}")
                 await self._handle_message(event, keyword_urls)
-            else:
-                logging.info("중복 메시지로 처리 중단")
+            elif has_keyword:
+                logging.info(f"중복 메시지로 처리 중단: {event.chat_id}")
         except Exception as e:
             logging.error(f"메시지 처리 중 오류 발생: {e}", exc_info=True)
+        
+    def _should_ignore_message(self, event):
+        """
+        메시지를 무시해야 하는지 검사하는 함수
+        """
+        try:
+            # 메시지 출처가 봇인지 확인 (직접적인 방식)
+            if hasattr(event.message, 'message'):
+                # 봇이 보낸 메시지 형식 확인 ('Keyword detected message:'로 시작하거나 'Password extracted:'를 포함)
+                if event.message.message.startswith("Keyword detected message:") or "Password extracted:" in event.message.message:
+                    logging.info(f"봇 형식 메시지 무시 (순환 방지): {event.chat_id}")
+                    return True
             
+            # 자신의 메시지도 처리 (테스트 목적)
+            if event.out:
+                # 키워드가 포함된 메시지인지 확인
+                if hasattr(event.message, 'message') and Config.KEYWORD in event.message.message:
+                    return False
+                return True
+            
+            # 채널이 아닌 경우 처리 (개인 메시지나 그룹 메시지만 처리)
+            if hasattr(event.chat, 'broadcast') and event.chat.broadcast:
+                return True
+            
+            # 메시지 텍스트가 없는 경우 처리하지 않음 (미디어만 있는 메시지 등)
+            if not hasattr(event.message, 'message') or not event.message.message:
+                if not (event.message.media and isinstance(event.message.media, MessageMediaPhoto)):
+                    return True
+
+            # 제외 그룹 목록에 있는 경우 무시
+            if Config.EXCLUDED_GROUP_IDS and any(abs(event.chat_id) == abs(int(group)) 
+                                              for group in Config.EXCLUDED_GROUP_IDS 
+                                              if group and group.strip()):
+                logging.info(f"제외 그룹 목록에 있는 메시지 무시: {event.chat_id}")
+                return True
+            
+            # 제외 키워드 포함 메시지 무시
+            if hasattr(event.message, 'message') and event.message.message and Config.EXCLUDED_KEYWORDS:
+                if any(keyword in event.message.message for keyword in Config.EXCLUDED_KEYWORDS if keyword and keyword.strip()):
+                    logging.info(f"제외 키워드가 포함된 메시지 무시: {event.chat_id}")
+                    return True
+            
+            return False
+        except Exception as e:
+            logging.error(f"메시지 필터링 중 오류: {e}", exc_info=True)
+            return True  # 오류 발생 시 안전하게 메시지 무시
+
+    def _collect_urls(self, event):
+        urls = []
+        
+        # 텍스트에서 직접 URL 추출
+        if hasattr(event.message, 'message') and event.message.message:
+            logging.debug(f"메시지 텍스트: {event.message.message}")
+            extracted_urls = self.extract_urls(event.message.message)
+            if extracted_urls:
+                logging.debug(f"텍스트에서 직접 추출된 URL: {extracted_urls}")
+                # 키워드가 포함된 URL만 필터링
+                urls.extend([url for url in extracted_urls if Config.KEYWORD in url])
+        
+        # 중복 제거 및 로깅
+        unique_urls = list(set(urls))
+        if unique_urls:
+            logging.info(f"추출된 URL 목록: {unique_urls}")
+        else:
+            logging.debug("추출된 URL이 없습니다.")
+        return unique_urls
+
+    async def _handle_message(self, event, keyword_urls):
+        try:
+            logging.info(f"메시지 처리 시작 (_handle_message): chat_id={event.chat_id}")
+            message_text = event.message.message
+            password = None
+            photo_path = None
+            
+            # 텍스트에서 비밀번호 추출 시도
+            logging.info("텍스트에서 비밀번호 추출 시도 중...")
+            password = PasswordExtractor.extract_from_text(message_text)
+            if password:
+                logging.info(f"비밀번호 추출: {password}")
+            else:
+                logging.info("텍스트에서 비밀번호를 찾지 못했습니다.")
+            
+            # 이미지에서 비밀번호 추출 시도 (텍스트에서 찾지 못한 경우)
+            if not password and event.message.media and isinstance(event.message.media, MessageMediaPhoto):
+                logging.info("이미지에서 비밀번호 추출 시도 중...")
+                try:
+                    if not os.path.exists(Config.IMAGE_DIR):
+                        os.makedirs(Config.IMAGE_DIR)
+                    
+                    photo_path = await event.download_media(file=Config.IMAGE_DIR)
+                    logging.info(f"이미지 다운로드 완료: {photo_path}")
+                    
+                    password = PasswordExtractor.extract_from_image(photo_path)
+                    if password:
+                        logging.info(f"이미지에서 비밀번호 추출: {password}")
+                    else:
+                        logging.info("이미지에서 비밀번호를 찾지 못했습니다.")
+                    
+                    # 처리 후 임시 파일 삭제 (메모리 관리)
+                    if os.path.exists(photo_path):
+                        try:
+                            os.remove(photo_path)
+                        except Exception as e:
+                            logging.warning(f"임시 이미지 파일 삭제 실패: {e}")
+                except Exception as e:
+                    logging.error(f"이미지 처리 중 오류: {e}", exc_info=True)
+            
+            # 봇으로 메시지 전송
+            logging.info("메시지 구성 중...")
+            message_to_send = f"Keyword detected message:\n{message_text}\n\nLinks:\n"
+            message_to_send += "\n".join(keyword_urls)
+            
+            if password:
+                message_to_send += f"\n\nPassword extracted: {password}"
+            
+            logging.info("메시지 전송 준비 완료")
+            
+            try:
+                # 이미지 저장 여부 확인 후 전송
+                if photo_path and os.path.exists(photo_path):
+                    logging.info(f"이미지와 함께 메시지 전송 시도: {photo_path}")
+                    await self.send_message_via_bot(message_to_send, media=photo_path)
+                    logging.info("이미지와 함께 메시지 전송 완료")
+                else:
+                    logging.info("텍스트 메시지만 전송 시도")
+                    await self.send_message_via_bot(message_to_send)
+                    logging.info("텍스트 메시지 전송 완료")
+
+                # URL 처리를 병렬로 실행 (타임아웃 적용)
+                logging.info(f"{len(keyword_urls)}개의 URL 처리 시작...")
+                tasks = [self._process_url_with_timeout(url, password) for url in keyword_urls]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # 예외 처리
+                success_count = sum(1 for r in results if not isinstance(r, Exception))
+                logging.info(f"URL 처리 완료: 성공 {success_count}/{len(keyword_urls)}")
+
+            except Exception as e:
+                logging.error(f"메시지 및 URL 처리 중 오류: {e}", exc_info=True)
+        except Exception as e:
+            logging.error(f"메시지 처리 함수 실행 중 오류: {e}", exc_info=True)
+        finally:
+            # 임시 파일 정리
+            if photo_path and os.path.exists(photo_path):
+                try:
+                    os.remove(photo_path)
+                except Exception:
+                    pass
+
+    async def _process_url_with_timeout(self, url, password=None):
+        """URL 처리에 타임아웃 적용"""
+        # 세마포어를 사용하여 동시 요청 수 제한
+        async with self.semaphore:
+            try:
+                # 타임아웃 설정으로 URL 처리
+                return await asyncio.wait_for(
+                    self._process_url(url, password),
+                    timeout=Config.URL_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                logging.error(f"URL 처리 타임아웃: {url}")
+                raise
+            except Exception as e:
+                logging.error(f"URL 처리 오류: {url}: {e}")
+                raise
+
+    async def _process_url(self, url, password=None):
+        try:
+            loop = asyncio.get_event_loop()
+            # 실행자에 작업 제출 (타임아웃 처리가 가능한 함수 사용)
+            return await loop.run_in_executor(
+                self.executor,
+                self._process_url_sync,
+                url,
+                password
+            )
+        except Exception as e:
+            logging.error(f"Error delegating URL processing for {url}: {e}")
+            raise
+
+    def _process_url_sync(self, url, password=None):
+        retry_count = 0
+        
+        while retry_count < Config.MAX_RETRIES:
+            try:
+                # URL 탐색
+                self.web_driver.navigate(url)
+                
+                # 버튼 클릭
+                self.web_driver.click_button()
+                
+                # 마우스 클릭 수행 (비밀번호 유무에 따라 다른 좌표 사용)
+                self.web_driver.perform_clicks(password)
+                
+                return True
+            except Exception as e:
+                retry_count += 1
+                if retry_count >= Config.MAX_RETRIES:
+                    logging.error(f"URL 처리 최대 재시도 횟수 도달: {url}")
+                    raise
+                
+                time.sleep(Config.RETRY_DELAY)
+
     # 종료 시 리소스 정리 메서드 추가
     async def shutdown(self):
         """모든 리소스 정리"""
@@ -872,258 +1037,56 @@ class MessageHandler:
         
         logging.info("모든 리소스가 정상적으로 정리되었습니다.")
 
-    def _should_ignore_message(self, event):
-        """
-        메시지를 무시해야 하는지 검사하는 함수
-        """
-        try:
-            # 자신의 메시지도 처리 (테스트 목적)
-            if event.out:
-                # 키워드가 포함된 메시지인지 확인
-                if hasattr(event.message, 'message') and Config.KEYWORD in event.message.message:
-                    logging.info("자신이 보낸 메시지이지만 키워드가 포함되어 처리합니다: " + Config.KEYWORD)
-                    return False
-                logging.debug("자신의 메시지이지만 키워드가 없어 무시")
-                return True
-            
-            # 채널이 아닌 경우 처리 (개인 메시지나 그룹 메시지만 처리)
-            if hasattr(event.chat, 'broadcast') and event.chat.broadcast:
-                logging.debug("채널 메시지 무시")
-                return True
-            
-            # 메시지 텍스트가 없는 경우 처리하지 않음 (미디어만 있는 메시지 등)
-            if not hasattr(event.message, 'message') or not event.message.message:
-                if not (event.message.media and isinstance(event.message.media, MessageMediaPhoto)):
-                    logging.debug("텍스트 없는 메시지 무시 (사진 제외)")
-                    return True
-            
-            # 대상 그룹 비교를 위한 ID 변환 (절대값 사용)
-            original_chat_id = event.chat_id
-            original_target = Config.TARGET_GROUP
-            
-            chat_id_abs = abs(event.chat_id)
-            target_id_abs = abs(Config.TARGET_GROUP)
-            
-            logging.debug(f"그룹 ID 비교: {chat_id_abs} vs {target_id_abs} (원본: {original_chat_id} vs {original_target})")
-            
-            # 대상 그룹이 아닌 경우 무시
-            if chat_id_abs != target_id_abs:
-                logging.debug(f"대상 그룹이 아닌 메시지 무시: {original_chat_id} (대상: {original_target})")
-                return True
-            
-            # 제외 그룹 목록에 있는 경우 무시
-            if Config.EXCLUDED_GROUP_IDS and any(abs(event.chat_id) == abs(int(group)) for group in Config.EXCLUDED_GROUP_IDS if group and group.strip()):
-                logging.debug(f"제외 그룹의 메시지 무시: {event.chat_id}")
-                return True
-            
-            # 제외 키워드 포함 메시지 무시
-            if hasattr(event.message, 'message') and event.message.message and Config.EXCLUDED_KEYWORDS:
-                if any(keyword in event.message.message for keyword in Config.EXCLUDED_KEYWORDS if keyword and keyword.strip()):
-                    logging.debug("제외 키워드 포함 메시지 무시")
-                    return True
-            
-            logging.info(f"메시지 필터링 통과 - 처리 진행: chat_id={event.chat_id}")
-            return False
-        except Exception as e:
-            logging.error(f"메시지 필터링 중 오류: {e}", exc_info=True)
-            return True  # 오류 발생 시 안전하게 메시지 무시
-
-    def _collect_urls(self, event):
-        urls = self.extract_urls(event.message.message)
-        urls.extend(self.extract_hyperlink_urls(event))
-        
-        if event.message.media and hasattr(event.message.media, 'webpage'):
-            if hasattr(event.message.media.webpage, 'url'):
-                urls.append(event.message.media.webpage.url)
-        
-        return urls
-
-    async def _handle_message(self, event, keyword_urls):
-        try:
-            logging.info(f"메시지 처리 시작: {event.message.message[:50]}...")
-            
-            message_text = event.message.message
-            password = None
-            photo_path = None
-            
-            # 텍스트에서 비밀번호 추출 시도
-            password = PasswordExtractor.extract_from_text(message_text)
-            if password:
-                logging.info(f"텍스트에서 비밀번호 추출 성공: {password}")
-            else:
-                logging.info("텍스트에서 비밀번호 추출 실패")
-            
-            # 이미지에서 비밀번호 추출 시도 (텍스트에서 찾지 못한 경우)
-            if not password and event.message.media and isinstance(event.message.media, MessageMediaPhoto):
-                logging.info("이미지에서 비밀번호 추출 시도")
-                try:
-                    if not os.path.exists(Config.IMAGE_DIR):
-                        os.makedirs(Config.IMAGE_DIR)
-                        logging.info(f"이미지 디렉토리 생성: {Config.IMAGE_DIR}")
-                    
-                    photo_path = await event.download_media(file=Config.IMAGE_DIR)
-                    logging.info(f"이미지 다운로드 완료: {photo_path}")
-                    
-                    password = PasswordExtractor.extract_from_image(photo_path)
-                    if password:
-                        logging.info(f"이미지에서 비밀번호 추출 성공: {password}")
-                    else:
-                        logging.info("이미지에서 비밀번호 추출 실패")
-                    
-                    # 처리 후 임시 파일 삭제 (메모리 관리)
-                    if os.path.exists(photo_path):
-                        try:
-                            os.remove(photo_path)
-                            logging.debug(f"임시 이미지 파일 삭제 완료: {photo_path}")
-                        except Exception as e:
-                            logging.warning(f"임시 이미지 파일 삭제 실패: {e}")
-                except Exception as e:
-                    logging.error(f"이미지 처리 중 오류: {e}", exc_info=True)
-            
-            # 봇으로 메시지 전송
-            message_to_send = f"Keyword detected message:\n{message_text}\n\nLinks:\n"
-            message_to_send += "\n".join(keyword_urls)
-            
-            if password:
-                message_to_send += f"\n\nPassword extracted: {password}"
-            
-            try:
-                logging.info("대상 그룹에 메시지 전송 중...")
-                # 이미지 저장 여부 확인 후 전송
-                if photo_path and os.path.exists(photo_path):
-                    await self.send_message_via_bot(message_to_send, media=photo_path)
-                    logging.info("이미지와 함께 메시지 전송 완료")
-                else:
-                    await self.send_message_via_bot(message_to_send)
-                    logging.info("텍스트 메시지 전송 완료")
-
-                # URL 처리를 병렬로 실행 (타임아웃 적용)
-                logging.info(f"{len(keyword_urls)}개의 URL 처리 시작...")
-                tasks = [self._process_url_with_timeout(url, password) for url in keyword_urls]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                # 예외 처리
-                success_count = 0
-                for url, result in zip(keyword_urls, results):
-                    if isinstance(result, Exception):
-                        logging.error(f"URL 처리 실패: {url} - {result}")
-                    else:
-                        success_count += 1
-                
-                logging.info(f"URL 처리 완료: 성공 {success_count}/{len(keyword_urls)}")
-
-            except Exception as e:
-                logging.error(f"메시지 및 URL 처리 중 오류: {e}", exc_info=True)
-        except Exception as e:
-            logging.error(f"메시지 처리 함수 실행 중 오류: {e}", exc_info=True)
-        finally:
-            # 임시 파일 정리
-            if photo_path and os.path.exists(photo_path):
-                try:
-                    os.remove(photo_path)
-                except Exception:
-                    pass
-
-    async def _process_url_with_timeout(self, url, password=None):
-        """URL 처리에 타임아웃 적용"""
-        # 세마포어를 사용하여 동시 요청 수 제한
-        async with self.semaphore:
-            try:
-                # 타임아웃 설정으로 URL 처리
-                return await asyncio.wait_for(
-                    self._process_url(url, password),
-                    timeout=Config.URL_TIMEOUT
-                )
-            except asyncio.TimeoutError:
-                logging.error(f"Timeout processing URL {url}")
-                raise
-            except Exception as e:
-                logging.error(f"Error processing URL {url}: {e}")
-                raise
-
-    async def _process_url(self, url, password=None):
-        try:
-            loop = asyncio.get_event_loop()
-            # 실행자에 작업 제출 (타임아웃 처리가 가능한 함수 사용)
-            return await loop.run_in_executor(
-                self.executor,
-                self._process_url_sync,
-                url,
-                password
-            )
-        except Exception as e:
-            logging.error(f"Error delegating URL processing for {url}: {e}")
-            raise
-
-    def _process_url_sync(self, url, password=None):
-        retry_count = 0
-        
-        while retry_count < Config.MAX_RETRIES:
-            try:
-                # 비밀번호 상태 로깅
-                if password:
-                    logging.info(f"URL 처리 시작 (비밀번호 있음): {url} / 비밀번호: {password}")
-                else:
-                    logging.info(f"URL 처리 시작 (비밀번호 없음): {url}")
-                
-                # URL 탐색
-                self.web_driver.navigate(url)
-                
-                # 버튼 클릭
-                self.web_driver.click_button()
-                
-                # 마우스 클릭 수행 (비밀번호 유무에 따라 다른 좌표 사용)
-                self.web_driver.perform_clicks(password)
-                
-                logging.info(f"URL 처리 완료: {url}")
-                return True
-            except Exception as e:
-                retry_count += 1
-                logging.warning(f"URL 처리 오류: {url} (시도 {retry_count}/{Config.MAX_RETRIES}): {e}")
-                
-                if retry_count >= Config.MAX_RETRIES:
-                    logging.error(f"URL 처리 실패: {url} ({Config.MAX_RETRIES}회 시도 후)")
-                    raise
-                
-                time.sleep(Config.RETRY_DELAY)
-
 async def check_connection_status(user_client, bot_client):
     """
     텔레그램 API 연결 상태를 주기적으로 확인하는 함수
     """
+    first_run = True
+    
     while True:
         try:
-            # 봇 계정 상태 확인
-            bot_me = await bot_client.get_me()
-            logging.info(f"봇 연결 상태 확인: {bot_me.first_name} (@{bot_me.username}) 계정으로 연결됨")
-            
-            # 사용자 계정 상태 확인
-            user_me = await user_client.get_me()
-            logging.info(f"사용자 연결 상태 확인: {user_me.first_name} (@{user_me.username}) 계정으로 연결됨")
-            
-            # 사용자 계정으로 그룹 정보 확인 (봇은 API 제한이 있음)
-            try:
-                target_entity = await user_client.get_entity(Config.TARGET_GROUP)
-                logging.info(f"대상 그룹 확인: {target_entity.title if hasattr(target_entity, 'title') else 'Unknown'} (ID: {Config.TARGET_GROUP})")
+            # 처음 실행 시에만 전체 정보 로깅, 이후에는 오류가 있을 때만 로깅
+            if first_run:
+                # 봇 계정 상태 확인
+                bot_me = await bot_client.get_me()
+                logging.info(f"봇 연결 상태: {bot_me.first_name} (@{bot_me.username})")
                 
-                # 그룹 멤버십 확인
-                dialogs = await user_client.get_dialogs()
-                found = False
-                for dialog in dialogs:
-                    if hasattr(dialog.entity, 'id') and abs(dialog.entity.id) == abs(Config.TARGET_GROUP):
-                        found = True
-                        logging.info(f"대상 그룹 참여 확인: {dialog.name} (ID: {dialog.entity.id})")
-                        break
+                # 사용자 계정 상태 확인
+                user_me = await user_client.get_me()
+                logging.info(f"사용자 연결 상태: {user_me.first_name} (@{user_me.username})")
                 
-                if not found:
-                    logging.warning(f"대상 그룹에 참여하지 않았습니다: {Config.TARGET_GROUP}")
-            except Exception as e:
-                logging.error(f"대상 그룹 확인 실패: {e}")
+                # 사용자 계정으로 그룹 정보 확인
+                try:
+                    target_entity = await user_client.get_entity(Config.TARGET_GROUP)
+                    logging.info(f"대상 그룹: {target_entity.title if hasattr(target_entity, 'title') else 'Unknown'} (ID: {Config.TARGET_GROUP})")
+                    
+                    # 그룹 멤버십 확인
+                    dialogs = await user_client.get_dialogs()
+                    found = False
+                    for dialog in dialogs:
+                        if hasattr(dialog.entity, 'id') and abs(dialog.entity.id) == abs(Config.TARGET_GROUP):
+                            found = True
+                            logging.info(f"대상 그룹 참여 확인: {dialog.name}")
+                            break
+                    
+                    if not found:
+                        logging.warning(f"대상 그룹에 참여하지 않았습니다: {Config.TARGET_GROUP}")
+                except Exception as e:
+                    logging.error(f"대상 그룹 확인 실패: {e}")
                 
+                first_run = False
+            else:
+                # 오류 검출 목적으로만 확인 (성공 시 로그 없음)
+                await bot_client.get_me()
+                await user_client.get_me()
+                
+        except PersistentTimestampOutdatedError as e:
+            logging.warning(f"타임스탬프 동기화 오류: {e}")
+            # 필요시 연결 재설정 로직 추가
         except Exception as e:
             logging.error(f"연결 상태 확인 실패: {e}")
         
-        await asyncio.sleep(300)  # 5분마다 확인
+        await asyncio.sleep(60)  # 1초에서 60초로 변경
 
 async def main():
     logging.info("봇 초기화 중...")
@@ -1140,17 +1103,31 @@ async def main():
         logging.info("Telegram 클라이언트 초기화 중...")
         # 봇 클라이언트 초기화
         bot_client = TelegramClient('bot_session', Config.API_ID, Config.API_HASH)
-        await bot_client.start(bot_token=Config.BOT_TOKEN)
+        try:
+            await bot_client.start(bot_token=Config.BOT_TOKEN)
+            logging.info("봇 클라이언트 연결 성공")
+        except Exception as e:
+            logging.error(f"봇 클라이언트 연결 실패: {e}")
+            raise
         
         # 사용자 클라이언트 초기화 (메시지 모니터링용)
         user_client = TelegramClient('user_session', Config.API_ID, Config.API_HASH)
-        await user_client.start()
+        try:
+            await user_client.start()
+            logging.info("사용자 클라이언트 연결 성공")
+        except Exception as e:
+            logging.error(f"사용자 클라이언트 연결 실패: {e}")
+            raise
         
         # 봇 정보 확인
-        bot_me = await bot_client.get_me()
-        user_me = await user_client.get_me()
-        logging.info(f"봇 계정 연결 성공: {bot_me.first_name} (@{bot_me.username})")
-        logging.info(f"사용자 계정 연결 성공: {user_me.first_name} (@{user_me.username})")
+        try:
+            bot_me = await bot_client.get_me()
+            user_me = await user_client.get_me()
+            logging.info(f"봇 계정 연결 성공: {bot_me.first_name} (@{bot_me.username})")
+            logging.info(f"사용자 계정 연결 성공: {user_me.first_name} (@{user_me.username})")
+        except Exception as e:
+            logging.error(f"계정 정보 확인 실패: {e}")
+            raise
         
         # 메시지 캐시 초기화
         message_cache = MessageCache()
@@ -1297,3 +1274,4 @@ if __name__ == '__main__':
         logging.info("Program terminated by user")
     except Exception as e:
         logging.error(f"Program terminated with error: {e}")
+
